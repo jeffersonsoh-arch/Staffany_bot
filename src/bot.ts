@@ -20,7 +20,7 @@ import {
   updateSwapRequest,
 } from "./store.js";
 import { dayBoundsUtc, formatDate, formatTimeRange, parseDateInput } from "./timezone.js";
-import { ShiftSlot, StaffMember } from "./types.js";
+import { LeaveRecord, ShiftSlot, StaffMember } from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -205,11 +205,18 @@ export function createBot(): Telegraf {
     }
     try {
       const { start, end } = dayBoundsUtc(dateStr, config.timezone);
-      const [staffById, slots, leaves] = await Promise.all([
+      const [staffById, slots] = await Promise.all([
         getStaffById(),
         staffAny.listShiftSlots({ start, end, includeUnassigned: false }),
-        staffAny.searchLeaveRecords(start, end),
       ]);
+
+      let leaves: LeaveRecord[] = [];
+      let leaveLookupFailed = false;
+      try {
+        leaves = await staffAny.searchLeaveRecords(start, end);
+      } catch {
+        leaveLookupFailed = true;
+      }
 
       const scheduledStaffIds = new Set(slots.map((s) => s.userId).filter((id): id is string => Boolean(id)));
       const onLeaveStaffIds = new Set(leaves.filter((l) => l.date === dateStr).map((l) => l.staffId));
@@ -220,11 +227,17 @@ export function createBot(): Telegraf {
         .map((staff) => staffDisplayName(staff))
         .sort((a, b) => a.localeCompare(b));
 
+      const caveat = leaveLookupFailed
+        ? "\n\n(Couldn't check approved leave — this list only excludes people already scheduled.)"
+        : "";
+
       if (available.length === 0) {
-        await ctx.reply(`Nobody's free on ${dateStr} — everyone is either scheduled or on leave.`);
+        await ctx.reply(`Nobody's free on ${dateStr} — everyone is either scheduled${leaveLookupFailed ? "" : " or on leave"}.${caveat}`);
         return;
       }
-      await ctx.reply(`Free on ${dateStr} (not scheduled, not on leave):\n\n${available.join("\n")}`);
+      await ctx.reply(
+        `Free on ${dateStr} (not scheduled${leaveLookupFailed ? "" : ", not on leave"}):\n\n${available.join("\n")}${caveat}`,
+      );
     } catch (err) {
       await ctx.reply(`Couldn't work out availability: ${(err as Error).message}`);
     }

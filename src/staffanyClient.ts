@@ -115,8 +115,13 @@ export class StaffAnyClient {
   }
 
   async searchLeaveRecords(startIso: string, endIso: string): Promise<LeaveRecord[]> {
+    // The BETA spec types dateRange.from/to as bare integers with no documented unit;
+    // epoch seconds is our best guess (millisecond epochs caused a 500 from this endpoint).
     const result = await this.post<{ items: LeaveRecord[] }>("/workspace/v2/leaves/records/search", {
-      dateRange: { from: new Date(startIso).getTime(), to: new Date(endIso).getTime() },
+      dateRange: {
+        from: Math.floor(new Date(startIso).getTime() / 1000),
+        to: Math.floor(new Date(endIso).getTime() / 1000),
+      },
     });
     return result.items;
   }
