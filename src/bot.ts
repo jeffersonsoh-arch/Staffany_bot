@@ -91,7 +91,7 @@ export function createBot(): Telegraf {
         "/whosworking [today|tomorrow|YYYY-MM-DD] – who's rostered on a given day\n" +
         "/offswap – pick one of your upcoming shifts to offer for someone else to take\n" +
         "/openswaps – list open swap offers\n" +
-        "/takeswap <requestId> – claim an open swap (reassigns the shift to you)\n" +
+        "/takeswap – pick an open swap offer to claim (reassigns the shift to you)\n" +
         "/cancelswap <requestId> – cancel a swap offer you created",
     ),
   );
@@ -243,7 +243,7 @@ export function createBot(): Telegraf {
       });
       await ctx.editMessageReplyMarkup(undefined).catch(() => {});
       await ctx.reply(
-        `Swap offer created (id: ${request.id}) for:\n${shiftSummary}\n\nAnyone linked can claim it with:\n/takeswap ${request.id}`,
+        `Swap offer created (id: ${request.id}) for:\n${shiftSummary}\n\nAnyone linked can claim it via /takeswap.`,
       );
     } catch (err) {
       await ctx.reply(`Couldn't create the swap offer: ${(err as Error).message}`);
@@ -263,21 +263,34 @@ export function createBot(): Telegraf {
   bot.command("takeswap", async (ctx) => {
     const resolved = requireLink(ctx);
     if (!resolved) return;
-    const { link, fromId } = resolved;
-    const [requestId] = commandArgs(ctx);
-    if (!requestId) {
-      await ctx.reply("Usage: /takeswap <requestId> (see /openswaps)");
+    const { link } = resolved;
+    const takeable = listSwapRequests("open").filter((r) => r.offeredByStaffId !== link.staffId);
+    if (takeable.length === 0) {
+      await ctx.reply("No open swap offers you can take right now.");
       return;
     }
+    const buttons = takeable
+      .slice(0, 15)
+      .map((r) => [Markup.button.callback(r.shiftSummary.split("\n")[0], `takeswap:${r.id}`)]);
+    await ctx.reply("Pick a swap offer to take:", Markup.inlineKeyboard(buttons));
+  });
+
+  bot.action(/^takeswap:(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const resolved = requireLink(ctx);
+    if (!resolved) return;
+    const { link, fromId } = resolved;
+    const requestId = ctx.match[1];
     const request = getSwapRequest(requestId);
     if (!request || request.status !== "open") {
-      await ctx.reply("That swap offer doesn't exist or is no longer open.");
+      await ctx.reply("That swap offer doesn't exist or is no longer open — run /takeswap again for the current list.");
       return;
     }
     if (request.offeredByStaffId === link.staffId) {
       await ctx.reply("You can't take your own swap offer. Use /cancelswap instead.");
       return;
     }
+    await ctx.editMessageReplyMarkup(undefined).catch(() => {});
 
     try {
       await staffAny.unassignShiftSlot(request.shiftSlotId);
