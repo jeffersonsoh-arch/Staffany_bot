@@ -7,6 +7,7 @@ export interface StaffMember {
     firstName: string | null;
     lastName: string | null;
     email: string | null;
+    phoneNumber: string | null;
   };
   workInfo?: {
     status: string;

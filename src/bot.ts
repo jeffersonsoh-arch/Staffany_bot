@@ -1,6 +1,14 @@
-import { Context, Telegraf } from "telegraf";
+import { Context, Markup, Telegraf } from "telegraf";
+import { message } from "telegraf/filters";
 import { config } from "./config.js";
-import { findStaffByEmail, getSectionsById, getShiftsById, getStaffById, staffDisplayName } from "./directory.js";
+import {
+  findStaffByEmail,
+  findStaffByPhone,
+  getSectionsById,
+  getShiftsById,
+  getStaffById,
+  staffDisplayName,
+} from "./directory.js";
 import { staffAny, StaffAnyApiError } from "./staffanyClient.js";
 import {
   addSwapRequest,
@@ -12,7 +20,7 @@ import {
   updateSwapRequest,
 } from "./store.js";
 import { dayBoundsUtc, formatDate, formatTimeRange, parseDateInput } from "./timezone.js";
-import { ShiftSlot } from "./types.js";
+import { ShiftSlot, StaffMember } from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -20,6 +28,16 @@ function commandArgs(ctx: Context): string[] {
   const msg = ctx.message;
   if (!msg || !("text" in msg)) return [];
   return msg.text.trim().split(/\s+/).slice(1);
+}
+
+function linkStaff(telegramId: number, staff: StaffMember): void {
+  setLink({
+    telegramId,
+    staffId: staff.id,
+    name: staffDisplayName(staff),
+    email: staff.profile?.email ?? null,
+    linkedAt: new Date().toISOString(),
+  });
 }
 
 function requireLink(ctx: Context) {
@@ -64,7 +82,8 @@ export function createBot(): Telegraf {
   bot.help((ctx) =>
     ctx.reply(
       "Commands:\n" +
-        "/register <email> – link your Telegram to your StaffAny profile\n" +
+        "/register <email> – link your Telegram to your StaffAny profile by email\n" +
+        "/registerphone – link your Telegram to your StaffAny profile by phone number\n" +
         "/whoami – show your linked profile\n" +
         "/unlink – remove the link\n" +
         "/myshifts [days] – your upcoming shifts (default 7 days)\n" +
@@ -89,16 +108,43 @@ export function createBot(): Telegraf {
         await ctx.reply("No StaffAny staff member found with that email. Check it matches your StaffAny profile.");
         return;
       }
-      setLink({
-        telegramId: ctx.from.id,
-        staffId: staff.id,
-        name: staffDisplayName(staff),
-        email: staff.profile?.email ?? null,
-        linkedAt: new Date().toISOString(),
-      });
+      linkStaff(ctx.from.id, staff);
       await ctx.reply(`Linked! You're now ${staffDisplayName(staff)} in StaffAny.`);
     } catch (err) {
       await ctx.reply(`Couldn't reach StaffAny: ${(err as Error).message}`);
+    }
+  });
+
+  bot.command("registerphone", async (ctx) => {
+    await ctx.reply(
+      "Tap the button below to share your Telegram phone number. I'll match it against your StaffAny profile.",
+      Markup.keyboard([Markup.button.contactRequest("Share my phone number")])
+        .oneTime()
+        .resize(),
+    );
+  });
+
+  bot.on(message("contact"), async (ctx) => {
+    if (!ctx.from) return;
+    const contact = ctx.message.contact;
+    if (contact.user_id !== ctx.from.id) {
+      await ctx.reply("That's not your own contact card — please use the share-my-number button instead.");
+      return;
+    }
+    try {
+      const staff = await findStaffByPhone(contact.phone_number);
+      if (!staff) {
+        await ctx.reply(
+          "Couldn't find a unique StaffAny staff member with that phone number. " +
+            "Try /register <email> instead, or ask a manager to check the phone number on your StaffAny profile.",
+          Markup.removeKeyboard(),
+        );
+        return;
+      }
+      linkStaff(ctx.from.id, staff);
+      await ctx.reply(`Linked! You're now ${staffDisplayName(staff)} in StaffAny.`, Markup.removeKeyboard());
+    } catch (err) {
+      await ctx.reply(`Couldn't reach StaffAny: ${(err as Error).message}`, Markup.removeKeyboard());
     }
   });
 

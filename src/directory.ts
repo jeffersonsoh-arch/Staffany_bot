@@ -28,6 +28,22 @@ export async function findStaffByEmail(email: string): Promise<StaffMember | und
   return [...byId.values()].find((s) => s.profile?.email?.toLowerCase() === target);
 }
 
+/** Keeps only digits, then the last 8 so "+65 9123 4567", "6591234567", and "91234567" all match. */
+function phoneKey(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return digits.slice(-8);
+}
+
+export async function findStaffByPhone(phone: string): Promise<StaffMember | undefined> {
+  const byId = await getStaffById();
+  const target = phoneKey(phone);
+  if (target.length < 8) return undefined;
+  const matches = [...byId.values()].filter(
+    (s) => s.profile?.phoneNumber && phoneKey(s.profile.phoneNumber) === target,
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 export async function getSectionsById(): Promise<Map<string, Section>> {
   if (sectionCache && Date.now() - sectionCache.at < CACHE_TTL_MS) return sectionCache.byId;
   const all = await staffAny.listSections();

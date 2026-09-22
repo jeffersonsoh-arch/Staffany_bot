@@ -27,6 +27,7 @@ Shift swapping (reassigning a shift slot) requires **Write access** on your Work
 ## Commands
 
 - `/register <email>` — link your Telegram account to your StaffAny profile (matched by work email)
+- `/registerphone` — link your Telegram account to your StaffAny profile by sharing your Telegram phone number (one-tap, no typing)
 - `/whoami` — show your linked profile
 - `/unlink` — remove the link
 - `/myshifts [days]` — your upcoming shifts (default 7 days)
