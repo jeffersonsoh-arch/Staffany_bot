@@ -57,7 +57,7 @@ async function describeSlot(slot: ShiftSlot): Promise<string> {
   const date = formatDate(slot.timeStart, config.timezone);
   const time = formatTimeRange(slot.timeStart, slot.timeEnd, config.timezone);
   const label = shiftName ? `${section} – ${shiftName}` : section;
-  return `${date}, ${time} — ${label} — ${whoName}\n  id: ${slot.id}`;
+  return `${date}, ${time} — ${label} — ${whoName}`;
 }
 
 function shortSlotLabel(slot: ShiftSlot, sections: Map<string, Section>, shifts: Map<string, Shift>): string {
@@ -148,7 +148,7 @@ export function createBot(): Telegraf {
     const resolved = requireLink(ctx);
     if (!resolved) return;
     const { link } = resolved;
-    await ctx.reply(`Linked as ${link.name}${link.email ? ` (${link.email})` : ""}.\nStaffAny staff ID: ${link.staffId}`);
+    await ctx.reply(`Linked as ${link.name}${link.email ? ` (${link.email})` : ""}.`);
   });
 
   bot.command("myshifts", async (ctx) => {
@@ -252,7 +252,7 @@ export function createBot(): Telegraf {
       });
       await ctx.editMessageReplyMarkup(undefined).catch(() => {});
       await ctx.reply(
-        `Swap offer created (id: ${request.id}) for:\n${shiftSummary}\n\nAnyone linked can claim it via /takeswap.`,
+        `Swap offer created for:\n${shiftSummary}\n\nAnyone linked can claim it via /takeswap.`,
       );
     } catch (err) {
       await ctx.reply(`Couldn't create the swap offer: ${(err as Error).message}`);
@@ -265,7 +265,7 @@ export function createBot(): Telegraf {
       await ctx.reply("No open swap offers right now.");
       return;
     }
-    const lines = open.map((r) => `#${r.id} — offered by ${r.offeredByName}\n${r.shiftSummary}`);
+    const lines = open.map((r) => `Offered by ${r.offeredByName}:\n${r.shiftSummary}`);
     await ctx.reply(`Open swap offers:\n\n${lines.join("\n\n")}`);
   });
 
@@ -335,12 +335,12 @@ export function createBot(): Telegraf {
       claimedByName: link.name,
     });
 
-    await ctx.reply(`Shift reassigned to you. Swap #${request.id} closed.`);
+    await ctx.reply(`Shift reassigned to you:\n${request.shiftSummary}`);
 
     try {
       await ctx.telegram.sendMessage(
         request.offeredByTelegramId,
-        `Your swap offer #${request.id} was taken by ${link.name}.\n${request.shiftSummary}`,
+        `Your swap offer was taken by ${link.name}:\n${request.shiftSummary}`,
       );
     } catch {
       // offeror may have never started a chat with the bot; ignore
@@ -379,7 +379,7 @@ export function createBot(): Telegraf {
     }
     updateSwapRequest(request.id, { status: "cancelled" });
     await ctx.editMessageReplyMarkup(undefined).catch(() => {});
-    await ctx.reply(`Swap #${request.id} cancelled.`);
+    await ctx.reply(`Swap offer cancelled:\n${request.shiftSummary}`);
   });
 
   return bot;
