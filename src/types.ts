@@ -12,7 +12,15 @@ export interface StaffMember {
   workInfo?: {
     status: string;
     homeSection: { id: string; name: string } | null;
+    joinDate: string | null;
+    resignDate: string | null;
   };
+}
+
+export interface LeaveRecord {
+  leaveRecordId: string;
+  staffId: string;
+  date: string;
 }
 
 export interface Section {

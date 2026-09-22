@@ -4,7 +4,7 @@ A Telegram bot for StaffAny staff to check their shifts, see who's rostered on a
 
 ## How it works
 
-The Workspace API is authenticated with a single org-wide API key (not per-user OAuth), so this bot keeps its own small link table mapping each Telegram user to their StaffAny staff record (matched by work email via `/register`). Swap offers are tracked locally too; claiming one calls the Workspace API to unassign the original staff member and assign the claimer.
+The Workspace API is authenticated with a single org-wide API key (not per-user OAuth), so this bot keeps its own small link table mapping each Telegram user to their StaffAny staff record (matched by phone number via `/registerphone`). Swap offers are tracked locally too; claiming one calls the Workspace API to unassign the original staff member and assign the claimer.
 
 Shift swapping (reassigning a shift slot) requires **Write access** on your Workspace API key, which StaffAny enables separately from (free) Read access. If your key only has Read access, `/offswap` and `/openswaps` still work, but `/takeswap` will fail with a clear error telling you to ask a manager to do it manually.
 
@@ -26,12 +26,12 @@ Shift swapping (reassigning a shift slot) requires **Write access** on your Work
 
 ## Commands
 
-- `/register <email>` — link your Telegram account to your StaffAny profile (matched by work email)
 - `/registerphone` — link your Telegram account to your StaffAny profile by sharing your Telegram phone number (one-tap, no typing)
 - `/whoami` — show your linked profile
 - `/unlink` — remove the link
 - `/myshifts [days]` — your upcoming shifts (default 7 days)
 - `/whosworking [today|tomorrow|YYYY-MM-DD]` — who's rostered on a given day
+- `/available [today|tomorrow|YYYY-MM-DD]` — staff who are free that day (not scheduled, not on approved leave, and within their employment dates)
 - `/offswap <shiftSlotId>` — offer one of your upcoming shifts for someone else to take (the shift slot id is printed under each shift in `/myshifts`)
 - `/openswaps` — list open swap offers
 - `/takeswap <requestId>` — claim an open swap offer (reassigns the shift to you via the Workspace API)
@@ -43,6 +43,6 @@ Links and swap requests are stored in `data/db.json` (gitignored). It's a flat f
 
 ## Notes / limitations
 
-- Staff are matched by email against `/workspace/v2/staff`; make sure the email you register with matches your StaffAny profile.
+- Staff are matched by phone number against `/workspace/v2/staff`; matching is done on the last 8 digits so `+65 9123 4567`, `6591234567`, and `91234567` all match. If two staff share those last 8 digits, linking is refused rather than guessing — ask a manager to check the number on file.
 - The API key inherits the permissions of the StaffAny account that generated it — an Owner key sees the whole org, a Manager key is scoped to their groups.
-- `/whosworking` looks across all sections; there's currently no `/available` command to show who has *no* shift on a date, since that requires knowing everyone's employment status vs. approved leave — could be added on top of `/workspace/v2/leaves/records/search` if needed.
+- `/available` cross-references `/workspace/v2/shift-slots`, `/workspace/v2/leaves/records/search`, and each staff member's `joinDate`/`resignDate`. It doesn't account for unpaid/unofficial time off that was never logged as a leave record in StaffAny.

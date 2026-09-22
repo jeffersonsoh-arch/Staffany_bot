@@ -2,11 +2,11 @@ import { Context, Markup, Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
 import { config } from "./config.js";
 import {
-  findStaffByEmail,
   findStaffByPhone,
   getSectionsById,
   getShiftsById,
   getStaffById,
+  isEmployedOn,
   staffDisplayName,
 } from "./directory.js";
 import { staffAny, StaffAnyApiError } from "./staffanyClient.js";
@@ -45,7 +45,7 @@ function requireLink(ctx: Context) {
   if (!fromId) return undefined;
   const link = getLink(fromId);
   if (!link) {
-    ctx.reply("You're not linked to a StaffAny profile yet. Use /register <your work email> first.");
+    ctx.reply("You're not linked to a StaffAny profile yet. Use /registerphone first.");
     return undefined;
   }
   return { link, fromId };
@@ -74,7 +74,7 @@ export function createBot(): Telegraf {
     ctx.reply(
       "Hi! I'm the StaffAny shift bot.\n\n" +
         "First, link your Telegram to your StaffAny profile:\n" +
-        "/register <your work email>\n\n" +
+        "/registerphone\n\n" +
         "Then try /help to see what I can do.",
     ),
   );
@@ -82,38 +82,18 @@ export function createBot(): Telegraf {
   bot.help((ctx) =>
     ctx.reply(
       "Commands:\n" +
-        "/register <email> – link your Telegram to your StaffAny profile by email\n" +
         "/registerphone – link your Telegram to your StaffAny profile by phone number\n" +
         "/whoami – show your linked profile\n" +
         "/unlink – remove the link\n" +
         "/myshifts [days] – your upcoming shifts (default 7 days)\n" +
         "/whosworking [today|tomorrow|YYYY-MM-DD] – who's rostered on a given day\n" +
+        "/available [today|tomorrow|YYYY-MM-DD] – staff who are free (not scheduled, not on leave) on a given day\n" +
         "/offswap <shiftSlotId> – offer one of your upcoming shifts for someone else to take\n" +
         "/openswaps – list open swap offers\n" +
         "/takeswap <requestId> – claim an open swap (reassigns the shift to you)\n" +
         "/cancelswap <requestId> – cancel a swap offer you created",
     ),
   );
-
-  bot.command("register", async (ctx) => {
-    if (!ctx.from) return;
-    const [email] = commandArgs(ctx);
-    if (!email || !email.includes("@")) {
-      await ctx.reply("Usage: /register <your work email>");
-      return;
-    }
-    try {
-      const staff = await findStaffByEmail(email);
-      if (!staff) {
-        await ctx.reply("No StaffAny staff member found with that email. Check it matches your StaffAny profile.");
-        return;
-      }
-      linkStaff(ctx.from.id, staff);
-      await ctx.reply(`Linked! You're now ${staffDisplayName(staff)} in StaffAny.`);
-    } catch (err) {
-      await ctx.reply(`Couldn't reach StaffAny: ${(err as Error).message}`);
-    }
-  });
 
   bot.command("registerphone", async (ctx) => {
     await ctx.reply(
@@ -136,7 +116,7 @@ export function createBot(): Telegraf {
       if (!staff) {
         await ctx.reply(
           "Couldn't find a unique StaffAny staff member with that phone number. " +
-            "Try /register <email> instead, or ask a manager to check the phone number on your StaffAny profile.",
+            "Ask a manager to check the phone number on your StaffAny profile.",
           Markup.removeKeyboard(),
         );
         return;
@@ -151,7 +131,7 @@ export function createBot(): Telegraf {
   bot.command("unlink", async (ctx) => {
     if (!ctx.from) return;
     removeLink(ctx.from.id);
-    await ctx.reply("Unlinked. Use /register <email> to link again.");
+    await ctx.reply("Unlinked. Use /registerphone to link again.");
   });
 
   bot.command("whoami", async (ctx) => {
@@ -211,6 +191,42 @@ export function createBot(): Telegraf {
       await ctx.reply(`Rostered on ${dateStr}:\n\n${lines.join("\n")}`);
     } catch (err) {
       await ctx.reply(`Couldn't fetch the roster: ${(err as Error).message}`);
+    }
+  });
+
+  bot.command("available", async (ctx) => {
+    const [dateArg] = commandArgs(ctx);
+    let dateStr: string;
+    try {
+      dateStr = parseDateInput(dateArg, config.timezone);
+    } catch (err) {
+      await ctx.reply((err as Error).message);
+      return;
+    }
+    try {
+      const { start, end } = dayBoundsUtc(dateStr, config.timezone);
+      const [staffById, slots, leaves] = await Promise.all([
+        getStaffById(),
+        staffAny.listShiftSlots({ start, end, includeUnassigned: false }),
+        staffAny.searchLeaveRecords(start, end),
+      ]);
+
+      const scheduledStaffIds = new Set(slots.map((s) => s.userId).filter((id): id is string => Boolean(id)));
+      const onLeaveStaffIds = new Set(leaves.filter((l) => l.date === dateStr).map((l) => l.staffId));
+
+      const available = [...staffById.values()]
+        .filter((staff) => isEmployedOn(staff, dateStr))
+        .filter((staff) => !scheduledStaffIds.has(staff.id) && !onLeaveStaffIds.has(staff.id))
+        .map((staff) => staffDisplayName(staff))
+        .sort((a, b) => a.localeCompare(b));
+
+      if (available.length === 0) {
+        await ctx.reply(`Nobody's free on ${dateStr} — everyone is either scheduled or on leave.`);
+        return;
+      }
+      await ctx.reply(`Free on ${dateStr} (not scheduled, not on leave):\n\n${available.join("\n")}`);
+    } catch (err) {
+      await ctx.reply(`Couldn't work out availability: ${(err as Error).message}`);
     }
   });
 

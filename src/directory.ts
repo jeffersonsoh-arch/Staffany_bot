@@ -22,12 +22,6 @@ export async function getStaffById(): Promise<Map<string, StaffMember>> {
   return byId;
 }
 
-export async function findStaffByEmail(email: string): Promise<StaffMember | undefined> {
-  const byId = await getStaffById();
-  const target = email.trim().toLowerCase();
-  return [...byId.values()].find((s) => s.profile?.email?.toLowerCase() === target);
-}
-
 /** Keeps only digits, then the last 8 so "+65 9123 4567", "6591234567", and "91234567" all match. */
 function phoneKey(phone: string): string {
   const digits = phone.replace(/\D/g, "");
@@ -55,6 +49,14 @@ export async function getSectionsById(): Promise<Map<string, Section>> {
 export async function getShiftsById(startIso: string, endIso: string): Promise<Map<string, Shift>> {
   const all = await staffAny.listShifts(startIso, endIso);
   return new Map(all.map((s) => [s.id, s]));
+}
+
+/** Whether a staff member's employment window (joinDate..resignDate) covers the given YYYY-MM-DD date. */
+export function isEmployedOn(staff: StaffMember, dateStr: string): boolean {
+  const { joinDate, resignDate } = staff.workInfo ?? {};
+  if (joinDate && dateStr < joinDate) return false;
+  if (resignDate && dateStr > resignDate) return false;
+  return true;
 }
 
 export function invalidateDirectoryCache(): void {
