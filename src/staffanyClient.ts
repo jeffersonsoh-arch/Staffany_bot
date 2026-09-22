@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, isAxiosError } from "axios";
 import { config } from "./config.js";
-import { LeaveRecord, Section, Shift, ShiftSlot, StaffMember } from "./types.js";
+import { Section, Shift, ShiftSlot, StaffMember } from "./types.js";
 
 interface Page<T> {
   items: T[];
@@ -112,18 +112,6 @@ export class StaffAnyClient {
         cursor,
       }),
     );
-  }
-
-  async searchLeaveRecords(startIso: string, endIso: string): Promise<LeaveRecord[]> {
-    // The BETA spec types dateRange.from/to as bare integers with no documented unit;
-    // epoch seconds is our best guess (millisecond epochs caused a 500 from this endpoint).
-    const result = await this.post<{ items: LeaveRecord[] }>("/workspace/v2/leaves/records/search", {
-      dateRange: {
-        from: Math.floor(new Date(startIso).getTime() / 1000),
-        to: Math.floor(new Date(endIso).getTime() / 1000),
-      },
-    });
-    return result.items;
   }
 
   async assignShiftSlot(shiftSlotId: string, userId: string): Promise<void> {

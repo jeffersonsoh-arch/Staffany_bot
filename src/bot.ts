@@ -1,14 +1,7 @@
 import { Context, Markup, Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
 import { config } from "./config.js";
-import {
-  findStaffByPhone,
-  getSectionsById,
-  getShiftsById,
-  getStaffById,
-  isEmployedOn,
-  staffDisplayName,
-} from "./directory.js";
+import { findStaffByPhone, getSectionsById, getShiftsById, getStaffById, staffDisplayName } from "./directory.js";
 import { staffAny, StaffAnyApiError } from "./staffanyClient.js";
 import {
   addSwapRequest,
@@ -20,7 +13,7 @@ import {
   updateSwapRequest,
 } from "./store.js";
 import { dayBoundsUtc, formatDate, formatTimeRange, parseDateInput } from "./timezone.js";
-import { LeaveRecord, ShiftSlot, StaffMember } from "./types.js";
+import { Section, Shift, ShiftSlot, StaffMember } from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -67,6 +60,15 @@ async function describeSlot(slot: ShiftSlot): Promise<string> {
   return `${date}, ${time} — ${label} — ${whoName}\n  id: ${slot.id}`;
 }
 
+function shortSlotLabel(slot: ShiftSlot, sections: Map<string, Section>, shifts: Map<string, Shift>): string {
+  const section = sections.get(slot.sectionId)?.name ?? "Unknown section";
+  const shiftName = shifts.get(slot.shiftId)?.name;
+  const date = formatDate(slot.timeStart, config.timezone);
+  const time = formatTimeRange(slot.timeStart, slot.timeEnd, config.timezone);
+  const label = shiftName ? `${section} – ${shiftName}` : section;
+  return `${date} ${time} – ${label}`;
+}
+
 export function createBot(): Telegraf {
   const bot = new Telegraf(config.telegramBotToken);
 
@@ -87,8 +89,7 @@ export function createBot(): Telegraf {
         "/unlink – remove the link\n" +
         "/myshifts [days] – your upcoming shifts (default 7 days)\n" +
         "/whosworking [today|tomorrow|YYYY-MM-DD] – who's rostered on a given day\n" +
-        "/available [today|tomorrow|YYYY-MM-DD] – staff who are free (not scheduled, not on leave) on a given day\n" +
-        "/offswap <shiftSlotId> – offer one of your upcoming shifts for someone else to take\n" +
+        "/offswap – pick one of your upcoming shifts to offer for someone else to take\n" +
         "/openswaps – list open swap offers\n" +
         "/takeswap <requestId> – claim an open swap (reassigns the shift to you)\n" +
         "/cancelswap <requestId> – cancel a swap offer you created",
@@ -194,71 +195,42 @@ export function createBot(): Telegraf {
     }
   });
 
-  bot.command("available", async (ctx) => {
-    const [dateArg] = commandArgs(ctx);
-    let dateStr: string;
-    try {
-      dateStr = parseDateInput(dateArg, config.timezone);
-    } catch (err) {
-      await ctx.reply((err as Error).message);
-      return;
-    }
-    try {
-      const { start, end } = dayBoundsUtc(dateStr, config.timezone);
-      const [staffById, slots] = await Promise.all([
-        getStaffById(),
-        staffAny.listShiftSlots({ start, end, includeUnassigned: false }),
-      ]);
-
-      let leaves: LeaveRecord[] = [];
-      let leaveLookupFailed = false;
-      try {
-        leaves = await staffAny.searchLeaveRecords(start, end);
-      } catch {
-        leaveLookupFailed = true;
-      }
-
-      const scheduledStaffIds = new Set(slots.map((s) => s.userId).filter((id): id is string => Boolean(id)));
-      const onLeaveStaffIds = new Set(leaves.filter((l) => l.date === dateStr).map((l) => l.staffId));
-
-      const available = [...staffById.values()]
-        .filter((staff) => isEmployedOn(staff, dateStr))
-        .filter((staff) => !scheduledStaffIds.has(staff.id) && !onLeaveStaffIds.has(staff.id))
-        .map((staff) => staffDisplayName(staff))
-        .sort((a, b) => a.localeCompare(b));
-
-      const caveat = leaveLookupFailed
-        ? "\n\n(Couldn't check approved leave — this list only excludes people already scheduled.)"
-        : "";
-
-      if (available.length === 0) {
-        await ctx.reply(`Nobody's free on ${dateStr} — everyone is either scheduled${leaveLookupFailed ? "" : " or on leave"}.${caveat}`);
-        return;
-      }
-      await ctx.reply(
-        `Free on ${dateStr} (not scheduled${leaveLookupFailed ? "" : ", not on leave"}):\n\n${available.join("\n")}${caveat}`,
-      );
-    } catch (err) {
-      await ctx.reply(`Couldn't work out availability: ${(err as Error).message}`);
-    }
-  });
-
   bot.command("offswap", async (ctx) => {
     const resolved = requireLink(ctx);
     if (!resolved) return;
-    const { link, fromId } = resolved;
-    const [slotId] = commandArgs(ctx);
-    if (!slotId) {
-      await ctx.reply("Usage: /offswap <shiftSlotId> (copy the id shown under a shift in /myshifts)");
-      return;
+    const { link } = resolved;
+    try {
+      const start = new Date().toISOString();
+      const end = new Date(Date.now() + 14 * DAY_MS).toISOString();
+      const slots = await staffAny.listShiftSlots({ start, end, staffIds: [link.staffId], includeUnassigned: false });
+      slots.sort((a, b) => a.timeStart.localeCompare(b.timeStart));
+      if (slots.length === 0) {
+        await ctx.reply("You have no upcoming shifts in the next 14 days to offer for swap.");
+        return;
+      }
+      const [sections, shifts] = await Promise.all([getSectionsById(), getShiftsById(start, end)]);
+      const buttons = slots
+        .slice(0, 15)
+        .map((slot) => [Markup.button.callback(shortSlotLabel(slot, sections, shifts), `offswap:${slot.id}`)]);
+      await ctx.reply("Pick a shift to offer for swap:", Markup.inlineKeyboard(buttons));
+    } catch (err) {
+      await ctx.reply(`Couldn't fetch your shifts: ${(err as Error).message}`);
     }
+  });
+
+  bot.action(/^offswap:(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const resolved = requireLink(ctx);
+    if (!resolved) return;
+    const { link, fromId } = resolved;
+    const slotId = ctx.match[1];
     try {
       const start = new Date().toISOString();
       const end = new Date(Date.now() + 60 * DAY_MS).toISOString();
       const slots = await staffAny.listShiftSlots({ start, end, staffIds: [link.staffId], includeUnassigned: false });
       const slot = slots.find((s) => s.id === slotId);
       if (!slot) {
-        await ctx.reply("That shift wasn't found among your upcoming shifts.");
+        await ctx.reply("That shift wasn't found among your upcoming shifts — it may have changed. Run /offswap again.");
         return;
       }
       const shiftSummary = await describeSlot(slot);
@@ -269,8 +241,9 @@ export function createBot(): Telegraf {
         offeredByName: link.name,
         shiftSummary,
       });
+      await ctx.editMessageReplyMarkup(undefined).catch(() => {});
       await ctx.reply(
-        `Swap offer created (id: ${request.id}). Anyone linked can claim it with:\n/takeswap ${request.id}`,
+        `Swap offer created (id: ${request.id}) for:\n${shiftSummary}\n\nAnyone linked can claim it with:\n/takeswap ${request.id}`,
       );
     } catch (err) {
       await ctx.reply(`Couldn't create the swap offer: ${(err as Error).message}`);

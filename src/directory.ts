@@ -51,14 +51,6 @@ export async function getShiftsById(startIso: string, endIso: string): Promise<M
   return new Map(all.map((s) => [s.id, s]));
 }
 
-/** Whether a staff member's employment window (joinDate..resignDate) covers the given YYYY-MM-DD date. */
-export function isEmployedOn(staff: StaffMember, dateStr: string): boolean {
-  const { joinDate, resignDate } = staff.workInfo ?? {};
-  if (joinDate && dateStr < joinDate) return false;
-  if (resignDate && dateStr > resignDate) return false;
-  return true;
-}
-
 export function invalidateDirectoryCache(): void {
   staffCache = undefined;
   sectionCache = undefined;

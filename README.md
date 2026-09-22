@@ -31,8 +31,7 @@ Shift swapping (reassigning a shift slot) requires **Write access** on your Work
 - `/unlink` — remove the link
 - `/myshifts [days]` — your upcoming shifts (default 7 days)
 - `/whosworking [today|tomorrow|YYYY-MM-DD]` — who's rostered on a given day
-- `/available [today|tomorrow|YYYY-MM-DD]` — staff who are free that day (not scheduled, not on approved leave, and within their employment dates)
-- `/offswap <shiftSlotId>` — offer one of your upcoming shifts for someone else to take (the shift slot id is printed under each shift in `/myshifts`)
+- `/offswap` — shows your upcoming shifts as tappable buttons; tap one to offer it for swap
 - `/openswaps` — list open swap offers
 - `/takeswap <requestId>` — claim an open swap offer (reassigns the shift to you via the Workspace API)
 - `/cancelswap <requestId>` — cancel a swap offer you created
@@ -45,4 +44,4 @@ Links and swap requests are stored in `data/db.json` (gitignored). It's a flat f
 
 - Staff are matched by phone number against `/workspace/v2/staff`; matching is done on the last 8 digits so `+65 9123 4567`, `6591234567`, and `91234567` all match. If two staff share those last 8 digits, linking is refused rather than guessing — ask a manager to check the number on file.
 - The API key inherits the permissions of the StaffAny account that generated it — an Owner key sees the whole org, a Manager key is scoped to their groups.
-- `/available` cross-references `/workspace/v2/shift-slots`, `/workspace/v2/leaves/records/search`, and each staff member's `joinDate`/`resignDate`. It doesn't account for unpaid/unofficial time off that was never logged as a leave record in StaffAny.
+- There's no "who's available to work" command. StaffAny's `/workspace/v2/leaves/records/search` endpoint (needed to exclude staff on approved leave) is BETA and returned server errors (500) when tried, and its `dateRange.from`/`to` integer format isn't documented — this could be revisited once that endpoint is stable.
