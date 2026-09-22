@@ -72,6 +72,11 @@ function shortSlotLabel(slot: ShiftSlot, sections: Map<string, Section>, shifts:
 export function createBot(): Telegraf {
   const bot = new Telegraf(config.telegramBotToken);
 
+  bot.catch((err, ctx) => {
+    console.error(`Unhandled error for update ${ctx.update.update_id}:`, err);
+    ctx.reply("Something went wrong handling that — please try again.").catch(() => {});
+  });
+
   bot.start((ctx) =>
     ctx.reply(
       "Hi! I'm the StaffAny shift bot.\n\n" +
@@ -97,6 +102,10 @@ export function createBot(): Telegraf {
   );
 
   bot.command("registerphone", async (ctx) => {
+    if (!ctx.chat || ctx.chat.type !== "private") {
+      await ctx.reply("Message me privately (DM) and send /registerphone there — Telegram only allows sharing a phone number in a 1-on-1 chat.");
+      return;
+    }
     await ctx.reply(
       "Tap the button below to share your Telegram phone number. I'll match it against your StaffAny profile.",
       Markup.keyboard([Markup.button.contactRequest("Share my phone number")])
