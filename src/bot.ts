@@ -92,7 +92,7 @@ export function createBot(): Telegraf {
         "/offswap – pick one of your upcoming shifts to offer for someone else to take\n" +
         "/openswaps – list open swap offers\n" +
         "/takeswap – pick an open swap offer to claim (reassigns the shift to you)\n" +
-        "/cancelswap <requestId> – cancel a swap offer you created",
+        "/cancelswap – pick one of your own open swap offers to cancel",
     ),
   );
 
@@ -342,10 +342,26 @@ export function createBot(): Telegraf {
     const resolved = requireLink(ctx);
     if (!resolved) return;
     const { link } = resolved;
-    const [requestId] = commandArgs(ctx);
-    const request = requestId ? getSwapRequest(requestId) : undefined;
+    const mine = listSwapRequests("open").filter((r) => r.offeredByStaffId === link.staffId);
+    if (mine.length === 0) {
+      await ctx.reply("You have no open swap offers to cancel.");
+      return;
+    }
+    const buttons = mine
+      .slice(0, 15)
+      .map((r) => [Markup.button.callback(r.shiftSummary.split("\n")[0], `cancelswap:${r.id}`)]);
+    await ctx.reply("Pick a swap offer to cancel:", Markup.inlineKeyboard(buttons));
+  });
+
+  bot.action(/^cancelswap:(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const resolved = requireLink(ctx);
+    if (!resolved) return;
+    const { link } = resolved;
+    const requestId = ctx.match[1];
+    const request = getSwapRequest(requestId);
     if (!request || request.status !== "open") {
-      await ctx.reply("That swap offer doesn't exist or is no longer open.");
+      await ctx.reply("That swap offer doesn't exist or is no longer open — run /cancelswap again for the current list.");
       return;
     }
     if (request.offeredByStaffId !== link.staffId) {
@@ -353,6 +369,7 @@ export function createBot(): Telegraf {
       return;
     }
     updateSwapRequest(request.id, { status: "cancelled" });
+    await ctx.editMessageReplyMarkup(undefined).catch(() => {});
     await ctx.reply(`Swap #${request.id} cancelled.`);
   });
 

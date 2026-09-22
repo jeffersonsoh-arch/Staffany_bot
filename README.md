@@ -34,7 +34,7 @@ Shift swapping (reassigning a shift slot) requires **Write access** on your Work
 - `/offswap` — shows your upcoming shifts as tappable buttons; tap one to offer it for swap
 - `/openswaps` — list open swap offers
 - `/takeswap` — shows open swap offers (other than your own) as tappable buttons; tap one to claim it (reassigns the shift to you via the Workspace API)
-- `/cancelswap <requestId>` — cancel a swap offer you created
+- `/cancelswap` — shows your own open swap offers as tappable buttons; tap one to cancel it
 
 ## Data
 
